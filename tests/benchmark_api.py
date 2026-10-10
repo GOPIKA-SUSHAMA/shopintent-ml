@@ -88,10 +88,10 @@ def benchmark(total_requests=50, workers=1):
         print("First error:", errors[0])
 
 
-# Warm up the API
-for _ in range(5):
+# Warm-up
+for _ in range(10):
     send_request(None)
 
-# Compare sequential and concurrent performance
 benchmark(total_requests=50, workers=1)
 benchmark(total_requests=50, workers=5)
+benchmark(total_requests=50, workers=10)
