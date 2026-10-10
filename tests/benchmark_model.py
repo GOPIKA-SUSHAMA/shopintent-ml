@@ -1,4 +1,5 @@
-
+import argparse
+import json
 import time
 from pathlib import Path
 
@@ -6,14 +7,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
-# Locate our saved model
-PROJECT_DIR = Path(__file__).resolve().parent.parent
-MODEL_PATH = PROJECT_DIR / "models" / "shopintent_model.joblib"
-
-model = joblib.load(MODEL_PATH)
-
-# Same features used by our FastAPI endpoint
-sample = pd.DataFrame([{
+SAMPLE = {
     "Administrative": 1,
     "Administrative_Duration": 20,
     "Informational": 0,
@@ -29,27 +23,39 @@ sample = pd.DataFrame([{
     "Region": "1",
     "TrafficType": "2",
     "VisitorType": "Returning_Visitor",
-    "Weekend": False
-}])
+    "Weekend": False,
+}
 
-# Warm up the model
-for _ in range(20):
-    model.predict_proba(sample)
 
-# Measure prediction execution time
-latencies = []
+def main():
+    parser = argparse.ArgumentParser(description="Benchmark trained ML pipeline only")
+    parser.add_argument("--iterations", type=int, default=300)
+    args = parser.parse_args()
+    if args.iterations < 1:
+        parser.error("iterations must be positive")
+    root = Path(__file__).resolve().parent.parent
+    model = joblib.load(root / "models" / "shopintent_model.joblib")
+    frame = pd.DataFrame([SAMPLE])
+    for _ in range(20):
+        model.predict_proba(frame)
+    elapsed = []
+    for _ in range(args.iterations):
+        start = time.perf_counter()
+        model.predict_proba(frame)
+        elapsed.append((time.perf_counter() - start) * 1000)
+    results = {
+        "iterations": args.iterations,
+        "mean_ms": round(float(np.mean(elapsed)), 3),
+        "p50_ms": round(float(np.percentile(elapsed, 50)), 3),
+        "p95_ms": round(float(np.percentile(elapsed, 95)), 3),
+        "p99_ms": round(float(np.percentile(elapsed, 99)), 3),
+    }
+    print(json.dumps(results, indent=2))
+    output = root / "reports" / "performance" / "latest_model.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(results, indent=2), encoding="utf-8")
+    print(f"Saved: {output}")
 
-for _ in range(300):
-    start = time.perf_counter()
 
-    model.predict_proba(sample)
-
-    elapsed = (time.perf_counter() - start) * 1000
-    latencies.append(elapsed)
-
-print("\nMODEL INFERENCE BENCHMARK")
-print("--------------------------")
-print(f"Average: {np.mean(latencies):.2f} ms")
-print(f"p50: {np.percentile(latencies, 50):.2f} ms")
-print(f"p95: {np.percentile(latencies, 95):.2f} ms")
-print(f"p99: {np.percentile(latencies, 99):.2f} ms")
+if __name__ == "__main__":
+    main()

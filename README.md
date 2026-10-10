@@ -1,145 +1,119 @@
-# ShopIntent ML  Customer Purchase Prediction API
+# ShopIntent ML — Purchase Prediction and Low-Latency Model Serving
 
-A reproducible machine-learning project that predicts the probability of a purchase from online shopping session features. It combines exploratory data analysis, supervised classification, model comparison, probability calibration, a FastAPI inference service, and automated API testing.
+[![CI](https://github.com/GOPIKA-SUSHAMA/shopintent-ml/actions/workflows/ci.yml/badge.svg)](https://github.com/GOPIKA-SUSHAMA/shopintent-ml/actions/workflows/ci.yml)
 
-**Status:** Working local prediction API; GitHub Actions CI passing as of 10 October 2026. Model-quality and latency benchmark results should be added after they are reviewed.
+An **entry-level Machine Learning Engineering portfolio project** using shopping-session data to compare classifiers, estimate purchase probability, serve inference through a FastAPI endpoint, and benchmark API responsiveness under concurrency. Built with Python, Pandas, NumPy, Scikit-learn, XGBoost, Pytest and GitHub Actions. **No Docker required.**
 
-## Why this project?
+## Problem and dataset
 
-Purchase outcomes are imbalanced: most browsing sessions do not end in a purchase. This project examines how classification models handle that imbalance and how a trained model can be integrated into a testable Python application.
+Given numerical and categorical observations from an online shopping session, estimate whether it ended in a purchase (`Revenue`). The project uses the [Online Shoppers Purchasing Intention dataset](https://archive.ics.uci.edu/dataset/468/online+shoppers+purchasing+intention+dataset) (also [on Kaggle](https://www.kaggle.com/datasets/imakash3011/online-shoppers-purchasing-intention-dataset)), with 12,330 sessions and 17 explanatory attributes. Purchases form roughly 15.5% of observations, so Accuracy alone is insufficient.
 
-The project demonstrates concepts relevant to junior ML engineering roles: **Python, Pandas, NumPy, Scikit-learn, XGBoost, feature preprocessing, model evaluation, probability estimates, REST APIs, Pytest, and CI**.
+**Data is not included in this repository.** Download the CSV from the dataset provider into `data/raw/online_shoppers_intention.csv` and follow the notebook's loading instructions. Local datasets and model artifacts are ignored by Git.
 
-## Dataset
+## Implemented ML experiments
 
-**Online Shoppers Purchasing Intention Dataset** — approximately 12,330 sessions, with a binary `Revenue` target indicating whether a session resulted in a purchase.
+The Jupyter notebook (`notebooks/01_data_exploration.ipynb`) explores missing values, feature types, duplicates, target imbalance and feature distributions, then trains and compares:
 
-- [Kaggle dataset](https://www.kaggle.com/datasets/imakash3011/online-shoppers-purchasing-intention-dataset)
-- [Original UCI dataset](https://archive.ics.uci.edu/dataset/468/online+shoppers+purchasing+intention+dataset)
+- Logistic Regression baseline, Random Forest and XGBoost classifiers
+- Scikit-learn `Pipeline` / `ColumnTransformer` for numeric scaling and categorical encoding
+- Stratified training/validation splitting, model comparison, XGBoost hyperparameter tuning
+- Model probability evaluation and optional sigmoid calibration
 
-Download `online_shoppers_intention.csv` yourself and place it in `data/raw/`. Dataset files are deliberately excluded from Git; please follow the dataset's source terms.
+The model-selection experiment prioritises **Average Precision**, complemented by F1, Precision, Recall, ROC-AUC, Brier Score and Log Loss. Actual notebook metrics should be read from its saved outputs; this README does not invent results.
 
-## ML workflow
+**Important methodology:** The intended final 20% test split should remain untouched until model selection is complete. For a stricter deployment-focused experiment, use a chronological holdout and audit all features for time availability. Session-summary features may only exist after the visit, so the current demonstration is not proof of accurate early-session or real-time bidding predictions.
 
-1. **Explore the data:** inspect types, missing values, duplicates, numerical distributions, and the `Revenue` class balance.
-2. **Prepare features:** split training/validation/test data and preprocess numerical and categorical features with a Scikit-learn `ColumnTransformer` and `Pipeline`.
-3. **Train and compare:** experiment with Logistic Regression, Random Forest, and XGBoost.
-4. **Evaluate:** use precision, recall, F1, ROC-AUC, and average precision; experiment with cross-validation, tuning, and Brier score/probability calibration.
-5. **Serve predictions:** load the selected, locally saved pipeline via Joblib and expose a typed FastAPI `/predict` endpoint.
-6. **Test the API:** run integration tests against the real local model and unit tests using a fake model that requires no model artifact.
-
-**Prediction-time caveat:** The source data contains session-derived features. This is a prototype using recorded session information; it is not evidence of predictions being available at the start of a live browsing session. `PageValues` was excluded from the initial API feature set to reduce one potential leakage risk.
-
-## Repository structure
+## Architecture
 
 ```text
-shopintent-ml/
-├── .github/workflows/ci.yml    # Python GitHub Actions workflow
-├── api/main.py                 # FastAPI app and validated request schema
-├── notebooks/01_data_exploration.ipynb
-├── tests/test_api.py           # Local tests using saved model
-├── tests/test_api_unit.py      # Mock-model API tests for CI
-├── requirements.txt             # Full local environment
-├── requirements-ci.txt          # Lightweight CI environment
-├── .gitignore
-├── data/raw/                   # Local CSV, not committed
-└── models/                     # Saved model, not committed
+Kaggle CSV -> Jupyter EDA -> Scikit-learn preprocessing -> ML experiments
+                                                        |
+                                                  fitted pipeline
+                                                        |
+                                                local Joblib artifact
+                                                        |
+PowerShell/HTTP client -> Pydantic input validation -> FastAPI -> model.predict_proba()
+                                                        |
+                                            probability + decision + timing
+
+GitHub push -> GitHub Actions -> mock-model API unit tests
 ```
 
-## Local setup (Windows PowerShell)
+## Project structure
 
-Use Python 3.12 and compatible dependency versions for training and inference.
+```text
+api/main.py                         FastAPI prediction server
+notebooks/01_data_exploration.ipynb  EDA, classifiers, tuning and calibration
+tests/test_api.py                  Local integration tests with saved model
+tests/test_api_unit.py             CI tests using a mock model
+tests/benchmark_api.py             HTTP benchmark: p50/p95/p99, RPS, concurrency
+tests/benchmark_model.py           ML pipeline-only inference benchmark
+reports/performance/initial_baseline.md  Recorded initial benchmark outcomes
+.github/workflows/ci.yml           GitHub Actions (Docker-free)
+requirements-ci.txt               Lightweight CI dependencies
+```
+
+## Quick start (Windows PowerShell)
+
+The existing trained pipeline is expected at `models/shopintent_model.joblib`. It was produced in Jupyter and is deliberately not committed. Recreate the environment with compatible Scikit-learn and XGBoost versions; cross-version loading of Joblib models is not guaranteed.
 
 ```powershell
 cd "$HOME\Documents\shopintent-ml"
-py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pytest tests/test_api_unit.py -q
+python -m pytest tests/test_api.py -q
+python -m uvicorn api.main:app --port 8001 --no-access-log
 ```
 
-Download the CSV to `data/raw/`, open `notebooks/01_data_exploration.ipynb` in Jupyter, and run the model development cells. Save the selected fitted pipeline as `models/shopintent_model.joblib`. **The API requires this file to serve real predictions.** Model artifacts are not included in the repository.
-
-### Start the API
-
-```powershell
-python -m uvicorn api.main:app --port 8000
-```
-
-Open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) for interactive API documentation.
-
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /` | Basic API response |
-| `GET /health` | Confirm model can be loaded |
-| `POST /predict` | Return predicted purchase class and probability |
-
-### Example prediction request
-
-Send the following JSON to `POST /predict` in Swagger UI:
-
-```json
-{
-  "Administrative": 1,
-  "Administrative_Duration": 20,
-  "Informational": 0,
-  "Informational_Duration": 0,
-  "ProductRelated": 12,
-  "ProductRelated_Duration": 300,
-  "BounceRates": 0.02,
-  "ExitRates": 0.04,
-  "SpecialDay": 0,
-  "Month": "Nov",
-  "OperatingSystems": 2,
-  "Browser": 2,
-  "Region": 1,
-  "TrafficType": 2,
-  "VisitorType": "Returning_Visitor",
-  "Weekend": false
-}
-```
-
-An example **observed local** response from this project was:
+Open <http://127.0.0.1:8001/docs> for the interactive API. A `/predict` request must contain the 16 session features used during training (the API excludes `PageValues`). The response includes:
 
 ```json
 {
   "purchase_prediction": 0,
   "purchase_probability": 0.1277,
-  "threshold": 0.5
+  "threshold": 0.5,
+  "feature_preparation_ms": 0.45,
+  "model_pipeline_ms": 28.5
 }
 ```
 
-This is a single example prediction, **not** a model-accuracy or calibration result.
+This JSON shows the observed example probability reported during development, with **illustrative timing values**. `model_pipeline_ms` includes the saved preprocessing/calibration model path; end-to-end HTTP latency is greater than this measurement.
 
-## Testing and continuous integration
+## Benchmark inference
+
+Run in a **second** PowerShell window while the API is serving port 8001:
 
 ```powershell
-# No saved model needed: tests use a fake model
-python -m pytest tests/test_api_unit.py -v
-
-# Requires models/shopintent_model.joblib
-python -m pytest tests/test_api.py -v
+cd "$HOME\Documents\shopintent-ml"
+.\.venv\Scripts\Activate.ps1
+python tests/benchmark_api.py --url http://127.0.0.1:8001/predict --requests 100 --workers 1 5 10
+python tests/benchmark_model.py --iterations 300
 ```
 
-The `.github/workflows/ci.yml` workflow installs the Linux-compatible dependencies in `requirements-ci.txt` and runs model-independent API tests on pushes and pull requests to `main`. A successful run was confirmed on 10 October 2026; check the [Actions tab](https://github.com/GOPIKA-SUSHAMA/shopintent-ml/actions) for the latest status.
+Benchmarks save machine-readable JSON files under `reports/performance/` (ignored by Git). For the first verified numbers, see [initial baseline](reports/performance/initial_baseline.md).
 
-## Model evaluation results
+| Concurrent clients | HTTP mean | p95 | Throughput | Errors |
+|---:|---:|---:|---:|---:|
+| 1 | 52.49 ms | 68.20 ms | 19.00 req/s | 0/50 |
+| 5 | 195.42 ms | 300.07 ms | 24.80 req/s | 0/50 |
 
-Add actual validation/test measurements from the notebook once reviewed. Avoid selecting or tuning models on the held-out test set.
+These are **local laptop measurements** based on 50 requests each, not production-scale claims. Five clients achieved more throughput but increased per-request latency. Repeat with multiple runs, consistent model and server configuration, and larger request samples before making scalability claims. The synthetic single request exercises one path, not realistic session traffic.
 
-| Model | F1 | ROC-AUC | Average Precision | Brier score |
-| --- | ---: | ---: | ---: | ---: |
-| Logistic Regression | TBD | TBD | TBD | TBD |
-| Random Forest | TBD | TBD | TBD | TBD |
-| XGBoost | TBD | TBD | TBD | TBD |
-| Tuned/calibrated XGBoost (if selected) | TBD | TBD | TBD | TBD |
+## Tests and CI
 
-## Next improvements
+`tests/test_api_unit.py` uses FastAPI dependency injection to replace the trained model with a NumPy-returning fake. CI can validate API responses, input rejection, timing-field presence and deterministic outputs **without downloading a Kaggle CSV or committing a binary model**.
 
-- Benchmark local prediction throughput and p50/p95/p99 request latency without Uvicorn development reload.
-- Add model confidence intervals, feature-impact analysis, and calibration comparison.
-- Improve input feature availability guarantees for a truly live session-prediction scenario.
-- Document reproducible model training and dependency versions in a standalone script.
+The local integration suite `tests/test_api.py` needs the saved trained model and should be run on a machine with the correct ML dependencies. CI deliberately runs the mock suite only.
 
-## Limitations
+## Key engineering decisions and limits
 
-This is a **local ML engineering prototype**, not a deployed advertising auction system. It has not been validated for millions of requests per second, and no production latency or business-lift claim is made. Model training and deployment should use compatible Python and library versions; only load Joblib artifacts from trusted sources.
+- **Reusable model loading:** Joblib pipeline loaded once using `lru_cache` and injected through FastAPI dependencies.
+- **Validation:** Pydantic enforces required fields and basic ranges; categorical integer IDs are converted to string before the saved pipeline.
+- **Observability:** API reports feature preparation and model pipeline timing separately.
+- **Reproducibility:** CI uses an isolated Python 3.12 Linux runner with minimal dependencies. The real-model runtime must match the local training environment.
+- **Scope:** This is a single-machine educational system, not a distributed ad-auction service; no production traffic, A/B experiment or latency SLA is claimed.
+- **Data leakage:** `PageValues` was intentionally excluded. Further work would require an explicit prediction-time feature contract and ideally chronological validation.
+
+## Future experiments
+
+Profile preprocessing versus model inference more deeply, test batch prediction and calibrate thresholds on held-out validation data. Optional extensions include clustering shopper sessions, regression on a suitable continuous target, and more rigorous statistical comparisons. These are future directions, not delivered capabilities.

@@ -5,7 +5,6 @@ from api.main import app
 
 client = TestClient(app)
 
-# Valid shopping-session input
 sample_data = {
     "Administrative": 1,
     "Administrative_Duration": 20,
@@ -28,12 +27,16 @@ sample_data = {
 
 def test_home():
     response = client.get("/")
+
     assert response.status_code == 200
+    assert response.json()["message"] == "ShopIntent ML API is running"
 
 
 def test_health():
     response = client.get("/health")
+
     assert response.status_code == 200
+    assert response.json()["status"] == "healthy"
     assert response.json()["model_loaded"] is True
 
 
@@ -82,4 +85,16 @@ def test_repeatable_prediction():
 
     assert first.status_code == 200
     assert second.status_code == 200
-    assert first.json() == second.json()
+
+    result1 = first.json()
+    result2 = second.json()
+
+    assert result1["purchase_prediction"] == result2["purchase_prediction"]
+    assert result1["purchase_probability"] == result2["purchase_probability"]
+    assert result1["threshold"] == result2["threshold"]
+
+    assert result1["feature_preparation_ms"] >= 0
+    assert result2["feature_preparation_ms"] >= 0
+
+    assert result1["model_pipeline_ms"] >= 0
+    assert result2["model_pipeline_ms"] >= 0

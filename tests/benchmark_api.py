@@ -1,13 +1,13 @@
-
+import argparse
 import json
 import time
-import numpy as np
-from urllib.request import Request, urlopen
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from urllib.request import Request, urlopen
 
-URL = "http://127.0.0.1:8000/predict"
+import numpy as np
 
-payload = {
+SAMPLE = {
     "Administrative": 1,
     "Administrative_Duration": 20,
     "Informational": 0,
@@ -23,75 +23,70 @@ payload = {
     "Region": 1,
     "TrafficType": 2,
     "VisitorType": "Returning_Visitor",
-    "Weekend": False
+    "Weekend": False,
 }
+BODY = json.dumps(SAMPLE).encode("utf-8")
 
-body = json.dumps(payload).encode("utf-8")
 
-
-def send_request(_):
-    request = Request(
-        URL,
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST"
-    )
-
-    start = time.perf_counter()
-
+def send_request(url, timeout=15):
+    request = Request(url, data=BODY, headers={"Content-Type": "application/json"}, method="POST")
+    started = time.perf_counter()
     try:
-        with urlopen(request, timeout=10) as response:
-            result = json.load(response)
-
-        assert "purchase_probability" in result
-
-        elapsed = (time.perf_counter() - start) * 1000
-        return elapsed, None
-
+        with urlopen(request, timeout=timeout) as response:
+            if response.status != 200:
+                raise RuntimeError(f"HTTP {response.status}")
+            data = json.load(response)
+        probability = data["purchase_probability"]
+        if not 0 <= probability <= 1:
+            raise ValueError("Invalid purchase probability")
+        return (time.perf_counter() - started) * 1000, None
     except Exception as exc:
         return None, str(exc)
 
 
-def benchmark(total_requests=50, workers=1):
+def benchmark(url, workers, requests):
     start = time.perf_counter()
-
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        results = list(executor.map(
-            send_request, range(total_requests)
-        ))
-
+        results = list(executor.map(lambda _: send_request(url), range(requests)))
     duration = time.perf_counter() - start
-
-    latencies = np.array([
-        latency for latency, error in results
-        if error is None
-    ])
-
-    errors = [
-        error for latency, error in results
-        if error is not None
-    ]
-
-    print(f"\nConcurrent workers: {workers}")
-    print(f"Total requests: {total_requests}")
-    print(f"Successful requests: {len(latencies)}")
-    print(f"Failed requests: {len(errors)}")
-
-    if len(latencies):
-        print(f"Average latency: {np.mean(latencies):.2f} ms")
-        print(f"p50 latency: {np.percentile(latencies, 50):.2f} ms")
-        print(f"p95 latency: {np.percentile(latencies, 95):.2f} ms")
-        print(f"p99 latency: {np.percentile(latencies, 99):.2f} ms")
-        print(f"Throughput: {len(latencies) / duration:.2f} req/sec")
-
+    samples = np.array([value for value, error in results if error is None])
+    errors = [error for _, error in results if error is not None]
+    output = {
+        "workers": workers, "requests": requests, "successes": int(len(samples)),
+        "failures": len(errors), "elapsed_seconds": round(duration, 4),
+        "throughput_requests_per_second": round(len(samples) / duration, 3),
+    }
+    if len(samples):
+        output.update({
+            "mean_ms": round(float(np.mean(samples)), 3),
+            "p50_ms": round(float(np.percentile(samples, 50)), 3),
+            "p95_ms": round(float(np.percentile(samples, 95)), 3),
+            "p99_ms": round(float(np.percentile(samples, 99)), 3),
+        })
     if errors:
-        print("First error:", errors[0])
+        output["first_error"] = errors[0]
+    print(json.dumps(output, indent=2))
+    return output
 
 
-# Warm-up
-for _ in range(10):
-    send_request(None)
+def main():
+    parser = argparse.ArgumentParser(description="Benchmark local ShopIntent API HTTP latency")
+    parser.add_argument("--url", default="http://127.0.0.1:8001/predict")
+    parser.add_argument("--requests", type=int, default=100)
+    parser.add_argument("--workers", nargs="+", type=int, default=[1, 5, 10])
+    parser.add_argument("--output", default="reports/performance/latest_api.json")
+    args = parser.parse_args()
+    if args.requests < 1 or any(n < 1 for n in args.workers):
+        parser.error("requests and workers must be positive")
+    warmup = [send_request(args.url) for _ in range(10)]
+    if any(error for _, error in warmup):
+        raise RuntimeError(f"API unavailable: {warmup[0][1]}")
+    summary = [benchmark(args.url, workers, args.requests) for workers in args.workers]
+    destination = Path(args.output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps({"url": args.url, "results": summary}, indent=2), encoding="utf-8")
+    print(f"Saved: {destination}")
 
-benchmark(total_requests=50, workers=1)
-benchmark(total_requests=50, workers=5)
-benchmark(total_requests=50, workers=10)
+
+if __name__ == "__main__":
+    main()
