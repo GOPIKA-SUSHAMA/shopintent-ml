@@ -1,0 +1,18 @@
+# Python environment
+.venv/
+__pycache__/
+*.pyc
+
+# Local datasets
+data/raw/
+data/processed/
+
+# Trained ML models
+models/
+
+# Testing and Jupyter files
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Environment secrets
+.env
