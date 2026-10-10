@@ -1,4 +1,4 @@
-# ShopIntent ML — Customer Purchase Prediction API
+# ShopIntent ML  Customer Purchase Prediction API
 
 A reproducible machine-learning project that predicts the probability of a purchase from online shopping session features. It combines exploratory data analysis, supervised classification, model comparison, probability calibration, a FastAPI inference service, and automated API testing.
 
